@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 简历智能筛选系统</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <h1>AI 智能简历筛选系统</h1>
+    <p class="sub-title">支持多份简历上传(pdf,png,docx,jpg)</p>
+
+    <div class="top-grid">
+      <div class="card">
+        <h2>1. 上传简历</h2>
+        <input id="resumeFile" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg" multiple />
+        <button id="uploadResumeBtn">上传并解析</button>
+        <div id="uploadStatus" class="status"></div>
+        <div id="uploadResultList" class="result-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>2. 创建岗位</h2>
+        <form id="jobForm">
+          <input name="title" placeholder="岗位名称，例如：Python开发工程师" required />
+          <input name="education" placeholder="学历要求，例如：本科及以上" />
+          <input name="years_experience" type="number" min="0" placeholder="工作年限要求，例如：3" />
+          <input name="must_have_skills" placeholder="必须技能，逗号分隔，例如：Python,Flask,MySQL" />
+          <input name="preferred_skills" placeholder="加分技能，逗号分隔，例如：Docker,Redis,FastAPI" />
+          <input name="major_keywords" placeholder="专业要求，逗号分隔，例如：计算机,软件工程" />
+          <input name="keywords" placeholder="关键词，逗号分隔，例如：爬虫,后端,接口开发" />
+          <textarea name="description" placeholder="岗位描述"></textarea>
+          <button type="submit">保存岗位</button>
+        </form>
+        <div id="jobStatus" class="status"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. 选择岗位并开始筛选</h2>
+      <div class="toolbar">
+        <select id="jobSelect"></select>
+        <button id="matchBtn">开始筛选全部简历</button>
+        <button id="refreshBtn">刷新</button>
+      </div>
+      <div id="matchStatus" class="status"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>简历列表</h2>
+          <div class="card-actions">
+            <button id="deleteSelectedBtn" class="delete-btn">删除已选</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50px;">
+                  <input type="checkbox" id="selectAllResumes" />
+                </th>
+                <th>ID</th>
+                <th>姓名</th>
+                <th>电话</th>
+                <th>邮箱</th>
+                <th>学历</th>
+                <th>学校</th>
+                <th>专业</th>
+                <th>技能</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="resumeTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>岗位列表</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>岗位名称</th>
+                <th>学历要求</th>
+                <th>年限</th>
+                <th>必须技能</th>
+              </tr>
+            </thead>
+            <tbody id="jobTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>筛选结果</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>排名</th>
+              <th>姓名</th>
+              <th>分数</th>
+              <th>等级</th>
+              <th>电话</th>
+              <th>学校</th>
+              <th>专业</th>
+              <th>匹配技能</th>
+              <th>缺失技能</th>
+            </tr>
+          </thead>
+          <tbody id="matchTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>选中详情</h2>
+      <pre id="detailBox">点击某一行查看详情</pre>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
