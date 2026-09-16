@@ -3,7 +3,7 @@ import base64
 #于类型注解，帮助代码更清晰
 from typing import Dict, Any
 
-from config import DASHSCOPE_API_KEY, DASHSCOPE_MODEL
+from config import DASHSCOPE_API_KEY, DASHSCOPE_MODEL, AI_TIMEOUT
 
 #使用try安装openai,防止错误
 try:
@@ -95,6 +95,7 @@ JSON 格式如下：
             }
         ],
         temperature=0,
+        timeout=AI_TIMEOUT,
     )
     #从模型返回结果中取出正文内容。
     content = completion.choices[0].message.content or ""
@@ -159,6 +160,7 @@ def ai_review_match(resume: Dict[str, Any], job: Dict[str, Any], base_result: Di
             {"role": "user", "content": prompt}
         ],
         temperature=0,
+        timeout=AI_TIMEOUT,
     )
     #从模型返回结果中取出正文内容。
     content = completion.choices[0].message.content or ""

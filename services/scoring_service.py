@@ -1,3 +1,4 @@
+import logging
 import re
 #导入正则表达式模块
 #导入类型标注工具
@@ -11,8 +12,30 @@ normalize_text：规范化文本
 split_list_text：把字符串或列表整理成统一列表
 extract_skills_from_text：从文本里提取技能
 """
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 评分模型（总分 100，扣分项另计）
+#
+#   学历 education_score    满分 20
+#   专业 major_score        满分 15
+#   技能 skill_score        满分 35（必须技能 28 + 加分技能 7）
+#   年限 experience_score   满分 20
+#   关键词 keyword_score    满分 10
+#   ---------------------------------------------
+#   基础分 base_score       满分 100
+#   扣分 penalty            缺失的每个「必须技能」扣 8 分，上限 30 分
+#   最终分 final_score      clamp(base_score - penalty, 0, 100)
+#
+# 注意：某个维度「岗位未设置要求」时返回的是满分的一半左右（学历 10 / 专业 8 /
+# 年限 10），语义是"该维度不构成区分度"，而不是"该维度得满分"。
+# 这个取值的副作用是：岗位什么都不填时仍有 28 分基准分，属于已知的设计取舍。
+# ---------------------------------------------------------------------------
+
 #把一份简历进行打分，最后输出一个综合评分、等级、命中项、风险点，还可选地调用 AI 做进一步分析。
 EDU_RANK = {
+
     "高中": 1,
     "中专": 2,
     "技校": 2,
@@ -46,9 +69,14 @@ def _resume_text(resume: Dict[str, Any]) -> str:
     # 把这些内容用换行拼接成一整段文本，并做文本规范化处理
     return normalize_text("\n".join(parts))
 
+# 按词长降序预排一次。子串匹配必须"长的先试"，否则「博士后」会先命中「博士」
+# 而返回 6，永远到不了 7。所有依赖子串匹配的字典都要遵守这个规则。
+_EDU_RANK_ORDERED = sorted(EDU_RANK.items(), key=lambda kv: len(kv[0]), reverse=True)
+
+
 def _parse_education_rank(text: str) -> int:
     t = normalize_text(text)
-    for k, v in EDU_RANK.items():
+    for k, v in _EDU_RANK_ORDERED:
         if k in t:
             return v
     return 0
@@ -71,6 +99,42 @@ def _edu_score(candidate_edu: str, required_edu: str) -> Tuple[int, str]:
 
     return 0, f"学历不满足：{candidate_edu} < {required_edu}"
 
+# ASCII 技能名的词边界正则会按技能缓存，避免同一次筛选里反复编译。
+_ASCII_SKILL_PATTERN_CACHE: Dict[str, "re.Pattern[str]"] = {}
+
+
+def _ascii_skill_pattern(key: str) -> "re.Pattern[str]":
+    """为 ASCII 技能名编译一个带词边界的正则。
+
+    直接用 `key in text` 做子串匹配会把不相关的词也算命中：
+    要求「go」时，简历里的「Django」「Google」都会命中；要求「c」时几乎全部命中。
+    这里要求技能名的左右两侧不能是字母/数字（也不能是 + # . 这类技能名后缀），
+    从而让「go」匹配不到「django」，但仍能匹配独立的 go。
+
+    取舍：这样会牺牲一点召回——要求「go」时「golang」不再算命中。
+    实践中候选人技能列表（cset）的精确匹配会覆盖这种情况。
+    """
+    pattern = _ASCII_SKILL_PATTERN_CACHE.get(key)
+    if pattern is None:
+        pattern = re.compile(r"(?<![a-z0-9+#.])" + re.escape(key) + r"(?![a-z0-9+#])")
+        _ASCII_SKILL_PATTERN_CACHE[key] = pattern
+    return pattern
+
+
+def _skill_hit(key: str, cset: set, text_lower: str) -> bool:
+    """判断一个岗位技能要求是否命中简历。"""
+    if not key:
+        return False
+    # 优先用简历里已结构化的技能列表做精确匹配
+    if key in cset:
+        return True
+    # 中文技能（如「数据分析」）没有词边界概念，按子串匹配
+    if not key.isascii():
+        return key in text_lower
+    # 英文/符号技能（go、c++、c#、node.js…）要求词边界
+    return _ascii_skill_pattern(key).search(text_lower) is not None
+
+
 #根据简历里的技能，去匹配岗位要求的技能，并计算一个技能分数,传入候选人技能、必须技能、加分技能、简历文本，然后返回技能评分结果。
 def _skill_match_score(candidate_skills: List[str], must_skills: List[str], preferred_skills: List[str], text: str) -> Tuple[int, List[str], List[str], List[str]]:
     cset = {s.lower() for s in candidate_skills}#把候选人技能转成小写集合
@@ -84,8 +148,8 @@ def _skill_match_score(candidate_skills: List[str], must_skills: List[str], pref
         each = 28 / max(len(must_skills), 1)#计算每个必须技能的分值,最多28分
         for s in must_skills:
             key = s.lower()
-            #如果技能在候选人技能里或者简历文本里,候选人技能列表里有或者简历正文里出现过
-            if key in cset or key in text_lower:
+            #技能列表里精确命中，或按词边界在简历正文里出现
+            if _skill_hit(key, cset, text_lower):
                 matched_must.append(s)
             else:
                 missing_must.append(s)
@@ -95,7 +159,7 @@ def _skill_match_score(candidate_skills: List[str], must_skills: List[str], pref
     if preferred_skills:
         for s in preferred_skills:
             key = s.lower()
-            if key in cset or key in text_lower:
+            if _skill_hit(key, cset, text_lower):
                 matched_pref.append(s)
 
     score = int(min(28, len(matched_must) * each))#计算必须技能分
@@ -123,25 +187,41 @@ def _major_score(major: str, text: str, major_keywords: List[str]) -> Tuple[int,
 #看简历里的专业和内容，是否命中岗位要求的专业关键词；命中就给分，没命中就不给分。
 
 #
+# 工作年限的匹配模式，按"精确 → 宽松"排序。
+#
+# 早期版本里最后一档写作 r"(\d+)\+?\s*年"，它会把任意「N年」都当成工作年限，
+# 于是「2022年入学」「2019年毕业」会被识别成 2022 / 2019 年工作经验，
+# 直接满足甚至远超岗位要求。现在改成：所有模式都必须带工作语境，
+# 并在下面用 _YEAR_LIKE_* 兜底排除年份数字。
+_EXPERIENCE_PATTERNS = [
+    r"(\d+)\s*年(?:以上)?\s*工作经验",
+    r"工作经验[:：]?\s*(\d+)\s*年",
+    r"(\d+)\s*年(?:以上)?(?:的)?经验",
+    r"(\d+)\s*年(?:以上)?(?:的)?(?:工作|开发|从业|相关|项目|实战|实习)",
+    r"(?:工作|开发|从业|相关|实战|实习)(?:经验)?\s*[:：]?\s*(\d+)\s*年",
+    r"(\d+)\s*\+?\s*years?\b",
+]
+
+# 落在这个区间里的数字视为"年份"而不是"年限"
+_YEAR_LIKE_MIN = 1950
+_YEAR_LIKE_MAX = 2099
+
+
 def _experience_years(text: str) -> int:
     t = text.lower()
     ## 把文本转成小写，方便匹配英文内容
-    #定义了多个正则表达式，用来匹配不同的经验表达方式。
-    patterns = [
-        r"(\d+)\s*年\s*工作经验",
-        r"工作经验[:：]?\s*(\d+)\s*年",
-        r"(\d+)\s*年经验",
-        r"(\d+)\s*years?",
-        r"(\d+)\+?\s*年",
-    ]
-    #逐个尝试匹配
-    for pat in patterns:
-        m = re.search(pat, t)
-        if m:
+    for pat in _EXPERIENCE_PATTERNS:
+        # 用 finditer 而不是 search：某一处匹配到的是年份这类噪声时，
+        # 可以跳过它继续往后找真正的工作年限，而不是整条模式直接作废。
+        for m in re.finditer(pat, t):
             try:
-                return int(m.group(1))#取出数字并返回
-            except Exception:#如果数字转换失败，就跳过，不报错，继续尝试后面的模式。
-                pass
+                years = int(m.group(1))#取出数字
+            except (TypeError, ValueError):
+                continue
+            # 排除「2022年入学」「2019年毕业」这类年份
+            if _YEAR_LIKE_MIN <= years <= _YEAR_LIKE_MAX:
+                continue
+            return years
 
     return 0
 
@@ -294,8 +374,10 @@ def score_resume_against_job(resume: Dict[str, Any], job: Dict[str, Any]) -> Dic
         )
         result["ai_review"] = ai_review
         #把 AI 的分析结果放进最终返回值里
-    #异常处理
-    except Exception:
+    #异常处理：AI 是可选能力，失败不能影响规则打分结果。
+    #但必须留日志——否则 AI 整段挂掉时，前端只会显示一片空白，排查时无从下手。
+    except Exception as e:
+        logger.warning("AI 辅助分析失败（不影响规则评分）：%s", e)
         result["ai_review"] = {}
 
     return result

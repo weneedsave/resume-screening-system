@@ -6,7 +6,7 @@ from pathlib import Path
 #导入 Flask,Web 应用实例,渲染 HTML 模板,获取前端发来的请求数据,把 Python 字典转换成 JSON 响应返回给前端
 from flask import Flask, render_template, request, jsonify
 #从 config.py 里导入配置项
-from config import UPLOAD_FOLDER, MAX_CONTENT_LENGTH, AUTO_DELETE_AFTER_PROCESS
+from config import UPLOAD_FOLDER, MAX_CONTENT_LENGTH, AUTO_DELETE_AFTER_PROCESS, DEBUG
 # 业务服务导入
 from services.resume_service import process_resume
 #导入简历评分函数
@@ -423,4 +423,5 @@ def get_job_matches(job_id: int):
     })
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # debug 默认关闭；本地开发需要热重载时用 FLASK_DEBUG=1 启动
+    app.run(debug=DEBUG)

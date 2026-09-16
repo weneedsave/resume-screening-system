@@ -1,6 +1,13 @@
+import logging
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 统一日志配置：各模块用 logging.getLogger(__name__) 取 logger 即可
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 
 def _load_env():
@@ -31,9 +38,16 @@ MAX_CONTENT_LENGTH = 20 * 1024 * 1024  # 20MB
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 DASHSCOPE_MODEL = os.getenv("DASHSCOPE_MODEL", "qwen3.6-plus")
 
+# 大模型接口超时（秒）。SDK 不给超时会用很长的默认值，一份简历卡住就能拖垮整批筛选。
+AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "30"))
+
 # 本机 Tesseract（可选）
 TESSERACT_EXE = os.getenv("TESSERACT_EXE", r"E:\OCR\tesseract.exe")
 TESSDATA_DIR = os.getenv("TESSDATA_DIR", r"E:\OCR\tessdata")
 
 # 是否处理后删除上传文件
 AUTO_DELETE_AFTER_PROCESS = False
+
+# 调试模式：默认关闭（debug 模式会暴露堆栈与调试器，不能用于对外提供服务）。
+# 本地开发想开热重载，设置环境变量 FLASK_DEBUG=1 再启动。
+DEBUG = os.getenv("FLASK_DEBUG", "0") == "1"
