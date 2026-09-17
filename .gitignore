@@ -1,5 +1,9 @@
 # ===== 环境变量 / 密钥（切勿提交）=====
+# 用 .env.* 而不是逐个列举，否则 .env.bak / .env.local 这类备份文件会漏网。
+# 例外：.env.example 是给人看的占位模板，必须保留在仓库里。
 .env
+.env.*
+!.env.example
 
 # ===== Python =====
 __pycache__/

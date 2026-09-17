@@ -14,7 +14,14 @@
 
 先装依赖，项目根目录有个 requirements.txt，pip 装上就行。Python 版本要 3.11 以上。
 
-然后是配置。项目里的 .env.example 是一份模板，复制一份改名成 .env，把里面 DASHSCOPE_API_KEY 换成你自己的。这个 key 是阿里云百炼的，不填的话图片解析和 AI 辅助分析用不了，但纯 pdf 和 word 的规则打分还是能跑的。
+然后是配置。项目里的 .env.example 是一份模板，复制一份改名成 .env，把里面 `DEEPSEEK_API_KEY` 换成你自己的（[platform.deepseek.com](https://platform.deepseek.com) 申请）。
+
+**这个 key 是可选的**：不填的话图片解析和 AI 辅助分析用不了，但纯 pdf 和 word 的规则打分照样能跑——AI 失败会打印一条 warning 然后降级到本地 OCR，不会中断流程。
+
+> ⚠️ `DEEPSEEK_MODEL` 必须选**支持图片输入**的模型，因为图片简历解析要发图片。
+> 实测 `deepseek-v4-flash` 可用；**`deepseek-v4-pro` 不支持图片，而且它不报错**——
+> 它会静默丢掉图片、再凭文本编一个看起来很正常的答案。用错模型的后果不是报错，
+> 是拿到假数据。
 
 如果要用本地 OCR 兜底，还得装个 Tesseract，把 TESSERACT_EXE 和 TESSDATA_DIR 在 .env 里指到你的安装路径。
 
