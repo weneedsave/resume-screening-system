@@ -3,7 +3,7 @@ import base64
 #于类型注解，帮助代码更清晰
 from typing import Dict, Any
 
-from config import DASHSCOPE_API_KEY, DASHSCOPE_MODEL, AI_TIMEOUT
+from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, AI_TIMEOUT
 
 #使用try安装openai,防止错误
 try:
@@ -14,15 +14,16 @@ except Exception:
 from utils.text_utils import extract_json_object, complete_resume_fields
 
 client = None
-if DASHSCOPE_API_KEY and OpenAI is not None:
-    client = OpenAI(
-        api_key=DASHSCOPE_API_KEY,
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    )
+if DEEPSEEK_API_KEY and OpenAI is not None:
+    client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+
+# DeepSeek 默认开启思考模式：开着的时候 token 会先花在推理上，
+# 同一句话用 max_tokens=20 调用会得到空字符串。这里统一关掉，
+# 保证拿到的 content 就是最终答案。
+NO_THINKING = {"thinking": {"type": "disabled"}}
 #把本地图片文件转换成 Data URL,传入文件路径，返回 Data URL
 def _image_to_data_url(file_path: str) -> str:
-    ext = os.path.splitext(file_path)[1].lower()#从文件路径中提取扩展名，并转成小写
-    #建立字典，用来把文件扩展名映射成对应的 MIME 类型。
+    ext = os.path.splitext(file_path)[1].lower()
     mime_map = {
         ".png": "image/png",
         ".jpg": "image/jpeg",
@@ -38,10 +39,10 @@ def _image_to_data_url(file_path: str) -> str:
 #分析简历图片,传入的是图片文件路径，类型是字符串。
 def analyze_resume_image(file_path: str) -> dict:
     if client is None:
-        raise RuntimeError("未配置 DASHSCOPE_API_KEY 或未安装 openai")
+        raise RuntimeError("未配置 DEEPSEEK_API_KEY 或未安装 openai")
 
-    if not DASHSCOPE_MODEL:
-        raise RuntimeError("未配置 DASHSCOPE_MODEL")
+    if not DEEPSEEK_MODEL:
+        raise RuntimeError("未配置 DEEPSEEK_MODEL")
 
     image_url = _image_to_data_url(file_path)#把图片转成 Data URL
 #构造提示词
@@ -84,7 +85,7 @@ JSON 格式如下：
 """
 #发起请求，让模型分析图片。
     completion = client.chat.completions.create(
-        model=DASHSCOPE_MODEL,
+        model=DEEPSEEK_MODEL,
         messages=[
             {
                 "role": "user",
@@ -96,6 +97,7 @@ JSON 格式如下：
         ],
         temperature=0,
         timeout=AI_TIMEOUT,
+        extra_body=NO_THINKING,
     )
     #从模型返回结果中取出正文内容。
     content = completion.choices[0].message.content or ""
@@ -123,7 +125,7 @@ def ai_review_match(resume: Dict[str, Any], job: Dict[str, Any], base_result: Di
     AI 辅助生成筛选建议，不直接替代规则评分。
     """
     if client is None:
-        raise RuntimeError("未配置 DASHSCOPE_API_KEY 或未安装 openai")
+        raise RuntimeError("未配置 DEEPSEEK_API_KEY 或未安装 openai")
 
     prompt = f"""
 你是一个招聘筛选助手。请根据“简历”和“岗位要求”给出判断。
@@ -155,12 +157,13 @@ def ai_review_match(resume: Dict[str, Any], job: Dict[str, Any], base_result: Di
 """
 
     completion = client.chat.completions.create(
-        model=DASHSCOPE_MODEL,
+        model=DEEPSEEK_MODEL,
         messages=[
             {"role": "user", "content": prompt}
         ],
         temperature=0,
         timeout=AI_TIMEOUT,
+        extra_body=NO_THINKING,
     )
     #从模型返回结果中取出正文内容。
     content = completion.choices[0].message.content or ""

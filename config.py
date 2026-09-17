@@ -1,7 +1,18 @@
 import logging
 import os
+import sys
 
+#获取绝对路径
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Windows 中文环境下 stdout/stderr 默认用系统区域编码（cp936），
+# 日志里的中文会变成一堆乱码，等于白加日志。这里统一切到 UTF-8。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 # 统一日志配置：各模块用 logging.getLogger(__name__) 取 logger 即可
 logging.basicConfig(
@@ -35,8 +46,11 @@ DB_PATH = os.path.join(BASE_DIR, "resume_ai.db")
 MAX_CONTENT_LENGTH = 20 * 1024 * 1024  # 20MB
 
 # DashScope（可选）
-DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
-DASHSCOPE_MODEL = os.getenv("DASHSCOPE_MODEL", "qwen3.6-plus")
+# DeepSeek（对话与视觉解析共用同一个模型）
+
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 # 大模型接口超时（秒）。SDK 不给超时会用很长的默认值，一份简历卡住就能拖垮整批筛选。
 AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "30"))
