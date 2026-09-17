@@ -136,6 +136,122 @@ function renderJobTable(list) {
   }).join("");//把 map() 生成的多个表格行拼接成一个大字符串。
 }
 
+//把一条匹配结果渲染成可读的中文详情面板。
+//
+// 后端返回的是英文 key——那是给接口用的契约，不应该为了好看去改它：
+// script.js 里有十几处按这些 key 取值，改了 API 的 key 名页面立刻就空。
+// 所以「翻译成人话」这件事放在显示层做。
+function renderDetail(d) {
+  const name = d.candidate_name || d.filename || "(未识别姓名)";
+  const level = String(d.level || "");
+  //等级配色：A 绿 / B 蓝 / C 橙 / D 红
+  const levelCls = level.startsWith("A") ? "lv-a"
+    : level.startsWith("B") ? "lv-b"
+    : level.startsWith("C") ? "lv-c" : "lv-d";
+
+  //基本信息。同一个字段在响应里有两种 key 名（历史遗留），这里做一次归一。
+  const infoPairs = [
+    ["应聘岗位", d.job_title],
+    ["学历", d.candidate_edu],
+    ["学校", d.candidate_school || d.school],
+    ["专业", d.candidate_major || d.major],
+    ["电话", d.phone || d.candidate_phone],
+    ["邮箱", d.email],
+  ].filter(([, v]) => v);
+
+  //评分明细：[中文名, 得分, 满分]
+  const sd = d.score_detail || {};
+  const dims = [
+    ["学历", sd.education_score, 20],
+    ["专业", sd.major_score, 15],
+    ["技能", sd.skill_score, 35],
+    ["工作年限", sd.experience_score, 20],
+    ["关键词", sd.keyword_score, 10],
+  ];
+  const penalty = Number(sd.penalty || 0);
+
+  const dimRows = dims.map(([label, got, max]) => {
+    const g = Number(got) || 0;
+    const pct = max ? Math.max(0, Math.min(100, (g / max) * 100)) : 0;
+    return `
+      <tr>
+        <td>${esc(label)}</td>
+        <td class="num">${esc(g)}<span class="max"> / ${esc(max)}</span></td>
+        <td class="bar-cell"><span class="bar"><i style="width:${pct}%"></i></span></td>
+      </tr>`;
+  }).join("");
+
+  const penaltyRow = penalty
+    ? `<tr class="penalty"><td>缺失必须技能扣分</td><td class="num">${esc(penalty)}</td><td class="bar-cell"></td></tr>`
+    : "";
+
+  //技能徽章：命中绿色、缺失红色
+  const badges = (arr, cls) => (arr && arr.length)
+    ? arr.map(x => `<span class="badge ${cls}">${esc(x)}</span>`).join("")
+    : `<span class="badge empty">无</span>`;
+
+  const bulletList = (arr, cls) => (arr && arr.length)
+    ? `<ul class="ai-list ${cls}">${arr.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`
+    : "";
+
+  //AI 建议是可选项，调用失败时后端返回空对象
+  const ai = d.ai_review || {};
+  const aiBlock = Object.keys(ai).length ? `
+    <div class="detail-section">
+      <div class="sub-title">AI 辅助建议</div>
+      ${ai.ai_summary ? `<p class="ai-summary">${esc(ai.ai_summary)}</p>` : ""}
+      ${ai.ai_strengths ? `<div class="ai-label">优势</div>${bulletList(ai.ai_strengths, "ok")}` : ""}
+      ${ai.ai_risks ? `<div class="ai-label">风险</div>${bulletList(ai.ai_risks, "warn")}` : ""}
+      ${ai.ai_suggestion ? `<p class="ai-verdict">建议：<b>${esc(ai.ai_suggestion)}</b></p>` : ""}
+      ${ai.ai_note ? `<p class="ai-note">${esc(ai.ai_note)}</p>` : ""}
+    </div>` : `
+    <div class="detail-section">
+      <div class="sub-title">AI 辅助建议</div>
+      <p class="ai-note muted">未生成（模型未配置或调用失败，不影响规则评分）</p>
+    </div>`;
+
+  return `
+    <div class="detail-head">
+      <div class="detail-name">${esc(name)}</div>
+      <div class="detail-score ${levelCls}">
+        <b>${esc(d.score ?? 0)}</b><span>${esc(level)}</span>
+      </div>
+    </div>
+
+    ${infoPairs.length ? `
+    <div class="detail-section">
+      <div class="sub-title">基本信息</div>
+      <div class="kv-grid">
+        ${infoPairs.map(([k, v]) => `<div><span>${esc(k)}</span>${esc(v)}</div>`).join("")}
+      </div>
+    </div>` : ""}
+
+    <div class="detail-section">
+      <div class="sub-title">评分明细</div>
+      <table class="detail-table">
+        ${dimRows}
+        ${penaltyRow}
+        <tr class="total"><td>最终得分</td><td class="num">${esc(d.score ?? 0)}</td><td class="bar-cell"></td></tr>
+      </table>
+    </div>
+
+    <div class="detail-section">
+      <div class="sub-title">技能匹配</div>
+      <div class="badge-row"><em>必备·命中</em>${badges(d.matched_must_have, "ok")}</div>
+      <div class="badge-row"><em>必备·缺失</em>${badges(d.missing_must_have, "miss")}</div>
+      <div class="badge-row"><em>加分·命中</em>${badges(d.matched_preferred, "ok")}</div>
+    </div>
+
+    ${(d.reasons && d.reasons.length) ? `
+    <div class="detail-section">
+      <div class="sub-title">判定理由</div>
+      ${bulletList(d.reasons, "")}
+    </div>` : ""}
+
+    ${aiBlock}
+  `;
+}
+
 //把匹配结果渲染到表格里,参数是匹配结果数组
 function renderMatchTable(list) {
   currentMatches = list || [];//把匹配结果保存到全局变量 currentMatches 中。
@@ -164,7 +280,8 @@ function renderMatchTable(list) {
     tr.addEventListener("click", () => {
       const idx = Number(tr.dataset.index);//获取行索引
       const detail = currentMatches[idx];//根据索引找到当前这一条完整数据。
-      detailBox.textContent = JSON.stringify(detail, null, 2);//把这条数据的完整内容显示到详情框里。
+      detailBox.innerHTML = renderDetail(detail);//渲染成中文面板，而不是直接丢原始 JSON
+      detailBox.scrollTop = 0;
     });
   });
 }
