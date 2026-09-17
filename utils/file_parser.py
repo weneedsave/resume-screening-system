@@ -1,3 +1,4 @@
+import logging
 import os
 #BytesIO 可以把二进制数据当作文件对象来处理。
 from io import BytesIO
@@ -35,6 +36,8 @@ from config import TESSERACT_EXE, TESSDATA_DIR
 from utils.ai_service import analyze_resume_image
 from utils.text_utils import normalize_text, parse_resume_fields, build_resume_result
 
+logger = logging.getLogger(__name__)
+
 # Tesseract 配置
 #检查 Tesseract 可执行文件是否存在
 if os.path.exists(TESSERACT_EXE):
@@ -51,6 +54,23 @@ def _preprocess_image(img: Image.Image) -> Image.Image:
     img = img.filter(ImageFilter.SHARPEN)#再次锐化,提升文字清晰
     return img
 
+_CJK_START = "一"
+_CJK_END = "鿿"
+
+
+def _ocr_quality(text: str) -> tuple:
+    """给一次 OCR 结果打分，用于在多个识别方案之间择优。
+
+    不能只比长度——这是踩过的坑：中文排版如果被当成英文识别，每个汉字会被拆成
+    好几个字母，垃圾结果的字符数反而更多。实测同一张中文简历：
+      chi_sim+eng 识别出 192 个字符的正确中文
+      eng         识别出 203 个字符的乱码（"姓名" -> "TAR"）
+    「选最长」于是扔掉了正确答案。改成先比中文汉字个数、再比总长度。
+    """
+    cjk = sum(1 for ch in text if _CJK_START <= ch <= _CJK_END)
+    return (cjk, len(text))
+
+
 #使用 Tesseract OCR 识别图片中的文字,传入图片对象
 def _ocr_with_tesseract(img: Image.Image) -> str:
     img = _preprocess_image(img)#预处理图片
@@ -62,15 +82,24 @@ def _ocr_with_tesseract(img: Image.Image) -> str:
     ]
     #空字符串
     best_text = ""
-    #遍历所有识别方案
     for lang, config in attempts:
         try:
             text = pytesseract.image_to_string(img, lang=lang, config=config)#使用 Tesseract OCR 识别图片中的文字
             text = (text or "").strip()#去除空字符串
-            if len(text) > len(best_text):#如果当前识别结果比之前保存的结果更长，就更新 best_text。
+            if not text:
+                continue
+            if _ocr_quality(text) > _ocr_quality(best_text):#择优：先比中文数，再比长度
                 best_text = text
-        except Exception:
-            pass
+        except Exception as e:
+            # 某一个方案失败不影响其他方案，但必须留痕，
+            # 否则「chi_sim 语言包没装」这类问题会表现为「OCR 结果莫名其妙很差」
+            logger.warning("OCR 方案 %s %s 执行失败：%s", lang, config, e)
+
+    if not best_text:
+        logger.warning("所有 OCR 方案都没有识别出内容")
+    elif _ocr_quality(best_text)[0] == 0:
+        # 一个汉字都没认出来，但结果非空——大概率是中文被当成拉丁字母识别了
+        logger.warning("OCR 结果中未识别到任何中文，可能是语言包缺失或图片质量过差")
 
     return best_text.strip()
 #从 PDF 文件中提取纯文本,传入 PDF 文件路径
@@ -141,8 +170,11 @@ def extract_text_from_image(file_path: str) -> dict:
             text = normalize_text(ai_result.get("text", ""))#去掉多余空格规范换行清理脏字符
             fields = ai_result.get("fields", {})#从 AI 结果中取出字段信息
             return build_resume_result(text, fields, source="ai")#生成统一的简历结果
-    except Exception:
-        pass
+    except Exception as e:
+        # AI 是"优先"而不是"必须"，失败要降级到 OCR，不能中断。
+        # 但这里绝对不能静默——API Key 失效、模型名写错、网络不通都会走到这里，
+        # 全部吞掉的话，现象只会是"OCR 效果莫名其妙很差"，根本查不到根因。
+        logger.warning("AI 图片解析失败，降级到本地 OCR：%s", e)
     #如果 AI 解析出错，就直接跳过，进入 OCR 方案。
     try:
         img = Image.open(file_path)
